@@ -44,3 +44,6 @@ Desktop.ini
 
 # Make sure precompiled binaries are tracked
 !bin/*.exe
+
+# Native executables are built locally or downloaded from CI artifacts.
+/bin/artcraft-mcp

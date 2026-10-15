@@ -36,6 +36,17 @@ impl McpServer {
 
         debug!("Received method: {}", request.method);
 
+        if request.jsonrpc != "2.0" {
+            return Some(JsonRpcResponse::error(request.id, -32600, "Invalid JSON-RPC version".into()));
+        }
+        if request.id.is_none() {
+            if request.method == "notifications/initialized" {
+                self.initialized = true;
+                info!("MCP client initialized");
+            }
+            return None;
+        }
+
         match request.method.as_str() {
             "initialize" => Some(self.handle_initialize(request)),
             "notifications/initialized" => {
@@ -45,6 +56,7 @@ impl McpServer {
             }
             "tools/list" => Some(self.handle_tools_list(request)),
             "tools/call" => Some(self.handle_tool_call(request).await),
+            "ping" => Some(JsonRpcResponse::success(request.id, serde_json::json!({}))),
             _ => Some(JsonRpcResponse::error(
                 request.id,
                 -32601,
@@ -54,8 +66,17 @@ impl McpServer {
     }
 
     fn handle_initialize(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        let params = request.params.as_ref();
+        let requested = params.and_then(|p| p["protocolVersion"].as_str()).unwrap_or("");
+        let protocol = match requested {
+            "2024-11-05" | "2025-03-26" => requested,
+            _ => "2025-03-26",
+        };
+        if let Some(client) = params.and_then(|p| p.get("clientInfo")) {
+            info!("MCP client: {} version: {} protocol: {}", client["name"], client["version"], requested);
+        }
         let result = InitializeResult {
-            protocol_version: "2025-03-26".to_string(),
+            protocol_version: protocol.to_string(),
             capabilities: ServerCapabilities {
                 tools: ToolCapabilities { list_changed: false },
             },

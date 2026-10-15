@@ -9,6 +9,18 @@ Standalone repository bundling all **Model Context Protocol (MCP)** server imple
 
 This project enables AI coding assistants (Claude Desktop, Windsurf, Cursor, Antigravity, OpenClaw) to natively generate images, videos, 3D meshes, Gaussian splats, TTS, and manage media assets through natural language commands or automated scripts.
 
+## macOS and Linux
+
+This fork supports native builds of the community server. See the [macOS setup guide](docs/macos.md) for build requirements, sign-in, and Codex / Claude Desktop configuration.
+
+```sh
+PYTHONUTF8=1 python3 tools/build_native.py
+PYTHONUTF8=1 python3 tools/artcraft_healthcheck.py --offline
+PYTHONUTF8=1 python3 setup_mcp.py --client 'Claude Desktop'
+```
+
+This MCP connects agents to ArtCraft's hosted generation API. It does not run models locally or control PhotoCraft. PhotoCraft's document-editing MCP is a separate integration.
+
 ---
 
 ## 📁 Project Structure
@@ -102,21 +114,13 @@ Add to your MCP client configuration file (e.g., `claude_desktop_config.json` or
 
 ## 🔑 Authentication
 
-The server resolves credentials in the following order:
-
-1. **`ARTCRAFT_MCP_PRIVATE_SESSION_TOKEN`**: Dedicated MCP session Bearer token (`mcp_session_private_...`).
-2. **`ARTCRAFT_API_KEY`**: Automatically exchanged with `POST /v1/mcp/session/create` for an active session.
-3. **`ARTCRAFT_SESSION` and `ARTCRAFT_AVT`**: Session cookie environment variables.
-4. **Credential Files**: Auto-detected from `~/Artcraft/credentials/`:
-   - `artcraft_session.txt` — Your session cookie
-   - `artcraft_avt.txt` — Your visitor cookie
-5. **ArtCraft Desktop App Store**: Auto-detected from `%LOCALAPPDATA%\ai.artcraft.app\.cookies`.
+The community server uses ArtCraft session cookies, loaded from environment variables, credential files, or the desktop app's cookie jar. See [supported credentials](docs/macos.md#sign-in). API keys and MCP private session tokens belong to a separate implementation that is not included here.
 
 ---
 
 ## 🛠️ CLI Automation Suite
 
-All scripts in `tools/` communicate directly with `bin/artcraft-mcp-server.exe` over stdio JSON-RPC without needing external servers:
+All scripts in `tools/` communicate directly with `bin/artcraft-mcp` on macOS/Linux or `bin/artcraft-mcp.exe` on Windows over stdio JSON-RPC. Generation and account tools require access to ArtCraft's hosted API:
 
 ### Check Credits & Generation Costs
 ```powershell
@@ -176,5 +180,5 @@ For applications integrating the MCP server as a managed subprocess, `companion/
 - [Setup Guide](ArtCraft-MCP-Setup-Guide.md) — Comprehensive client installation manual.
 - [CLI Tools Guide](TOOLS.md) — Detailed parameters for all Python tools.
 - [Developer Notes](DEV-NOTES.md) — Architecture and protocol details.
-- [Rust Source Guide](rust/README.md) — Source code walkthrough for both crates.
+- [Rust Source Guide](rust/README.md) — Source and standalone build information.
 - [Companion Guide](companion/docs_mcp_server.md) — FastAPI / FastMCP bridge architecture.

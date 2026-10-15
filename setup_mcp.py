@@ -8,23 +8,20 @@ import os
 import sys
 import json
 import argparse
+from tools.artcraft_runtime import find_executable
 
 def find_mcp_binary():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(script_dir, "bin", "artcraft-mcp.exe"),
-        os.path.join(script_dir, "artcraft-mcp.exe"),
-        os.path.join(script_dir, "bin", "artcraft-mcp"),
-        os.path.join(script_dir, "artcraft-mcp"),
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return os.path.abspath(c)
-    return None
+    return find_executable()
+
 
 def get_target_configs():
     home = os.path.expanduser("~")
-    appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+    if sys.platform == "darwin":
+        appdata = os.path.join(home, "Library", "Application Support")
+    elif sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+    else:
+        appdata = os.environ.get("XDG_CONFIG_HOME", os.path.join(home, ".config"))
     
     configs = [
         # Windsurf / Codeium
@@ -60,9 +57,7 @@ def register_mcp(config_path, client_name, exe_path):
 
     data["mcpServers"]["artcraft"] = {
         "command": exe_path,
-        "args": [],
-        "description": "ArtCraft AI generation platform — images, video, 3D, voice, and audio tools.",
-        "enabled": True
+        "args": []
     }
 
     try:
@@ -81,15 +76,28 @@ def register_mcp(config_path, client_name, exe_path):
 
 def main():
     print("=== ArtCraft MCP One-Click Setup Utility ===")
-    exe_path = find_mcp_binary()
-    if not exe_path:
-        print("[-] Could not find artcraft-mcp executable in setup directory.")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="Show paths and config without writing files")
+    parser.add_argument("--client", choices=["Claude Desktop", "Cursor", "Windsurf", "Windsurf (Alt)"],
+                        help="Configure only this client; otherwise configure all detected clients")
+    args = parser.parse_args()
+    try:
+        exe_path = find_mcp_binary()
+    except FileNotFoundError as exc:
+        parser.exit(1, f"{exc}\n")
+    if args.dry_run:
+        print(json.dumps({"mcpServers": {"artcraft": {"command": exe_path, "args": []}}}, indent=2))
+        for name, path in get_target_configs():
+            if args.client is None or args.client == name:
+                print(f"{name}: {path}")
+        return
 
     print(f"[*] Found ArtCraft MCP Binary: {exe_path}")
     
     updated_count = 0
     for name, path in get_target_configs():
+        if args.client is not None and args.client != name:
+            continue
         if register_mcp(path, name, exe_path):
             updated_count += 1
 

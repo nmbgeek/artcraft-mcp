@@ -1,3 +1,5 @@
+> For macOS/Linux and current authentication details, use [Native setup](docs/macos.md). This fork includes the community `artcraft-mcp` server. References below to a modern `artcraft-mcp-server`, API-key exchange, or MCP-session authentication describe a separate implementation not shipped here.
+
 # ArtCraft MCP Server — Setup Guide
 
 ## What Is This?

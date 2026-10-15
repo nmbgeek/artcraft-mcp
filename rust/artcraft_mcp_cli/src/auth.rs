@@ -13,35 +13,62 @@ const AVT_FILE: &str = "artcraft_avt.txt";
 const COOKIE_STORE: &str = "ai.artcraft.app/.cookies";
 
 pub fn load_credentials() -> Option<StorytellerCredentialSet> {
-    let home_dir = dirs::home_dir()?;
-    let cred_dir = home_dir.join(CREDENTIALS_DIR);
+    let home = dirs::home_dir();
+    let mut cookie_paths = Vec::new();
+    // Tauri stores its HTTP cookie jar in the platform cache directory.
+    if let Some(cache) = dirs::cache_dir() {
+        cookie_paths.push(cache.join(COOKIE_STORE));
+    }
+    // Preserve the legacy Windows / application-support location as a fallback.
+    if let Some(data) = dirs::data_local_dir() {
+        let path = data.join(COOKIE_STORE);
+        if !cookie_paths.contains(&path) {
+            cookie_paths.push(path);
+        }
+    }
+    resolve_credentials(
+        std::env::var("ARTCRAFT_SESSION").ok(),
+        std::env::var("ARTCRAFT_AVT").ok(),
+        home.map(|h| h.join(CREDENTIALS_DIR)),
+        &cookie_paths,
+    )
+}
 
-    let session_path = cred_dir.join(SESSION_FILE);
-    let avt_path = cred_dir.join(AVT_FILE);
-
-    let mut session = load_session_cookie(&session_path);
-    let mut avt = load_avt_cookie(&avt_path);
-
-    if session.is_none() || avt.is_none() {
-        let local_app_data = dirs::data_local_dir()?;
-        let cookie_store_path = local_app_data.join(COOKIE_STORE);
-        if let Some((s, a)) = load_credentials_from_cookie_store(&cookie_store_path) {
-            if session.is_none() {
-                session = s;
-            }
-            if avt.is_none() {
-                avt = a;
+fn resolve_credentials(
+    session_env: Option<String>,
+    avt_env: Option<String>,
+    credential_dir: Option<PathBuf>,
+    cookie_paths: &[PathBuf],
+) -> Option<StorytellerCredentialSet> {
+    let clean = |value: Option<String>| value.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+    let mut session = clean(session_env).map(StorytellerSessionCookie::new);
+    let mut avt = clean(avt_env).map(StorytellerAvtCookie::new);
+    if session.is_some() {
+        return Some(StorytellerCredentialSet::initialize(avt, session));
+    }
+    if let Some(dir) = credential_dir {
+        session = load_session_cookie(&dir.join(SESSION_FILE));
+        if session.is_some() {
+            avt = avt.or_else(|| load_avt_cookie(&dir.join(AVT_FILE)));
+            return Some(StorytellerCredentialSet::initialize(avt, session));
+        }
+        if let Ok(content) = fs::read_to_string(dir.join("native_session.json")) {
+            if let Ok(value) = serde_json::from_str::<Value>(&content) {
+                session = clean(value["session"].as_str().map(str::to_owned)).map(StorytellerSessionCookie::new);
+                if session.is_some() {
+                    avt = avt.or_else(|| clean(value["visitor"].as_str().map(str::to_owned)).map(StorytellerAvtCookie::new));
+                    return Some(StorytellerCredentialSet::initialize(avt, session));
+                }
             }
         }
     }
-
-    if session.is_none() && avt.is_none() {
-        warn!("No ArtCraft credentials found");
-        return None;
+    for path in cookie_paths {
+        if let Some((Some(s), a)) = load_credentials_from_cookie_store(path) {
+            return Some(StorytellerCredentialSet::initialize(avt.or(a), Some(s)));
+        }
     }
-
-    info!("Loaded ArtCraft credentials");
-    Some(StorytellerCredentialSet::initialize(avt, session))
+    warn!("No ArtCraft session found. Sign in to ArtCraft or set ARTCRAFT_SESSION.");
+    avt.map(|a| StorytellerCredentialSet::initialize(Some(a), None))
 }
 
 fn load_session_cookie(path: &PathBuf) -> Option<StorytellerSessionCookie> {
@@ -121,6 +148,18 @@ fn load_credentials_from_cookie_store(path: &PathBuf) -> Option<(Option<Storytel
     let mut avt = None;
 
     for cookie in array {
+        let domain = cookie.get("domain").and_then(|d| {
+            d.get("HostOnly").or_else(|| d.get("Suffix")).and_then(Value::as_str)
+        });
+        if !matches!(domain, Some("storyteller.ai" | "api.storyteller.ai" | ".storyteller.ai")) {
+            continue;
+        }
+        if let Some(expiry) = cookie.pointer("/expires/AtUtc").and_then(Value::as_str) {
+            match chrono::DateTime::parse_from_rfc3339(expiry) {
+                Ok(time) if time > chrono::Utc::now() => {},
+                _ => continue,
+            }
+        }
         if let Some(raw) = cookie.get("raw_cookie").and_then(|v| v.as_str()) {
             if raw.starts_with("session=") && session.is_none() {
                 let value = raw.split(';').next().unwrap_or(raw);
@@ -141,4 +180,82 @@ fn load_credentials_from_cookie_store(path: &PathBuf) -> Option<(Option<Storytel
     }
 
     Some((session, avt))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("artcraft-auth-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+        fn write(&self, name: &str, contents: &str) -> PathBuf {
+            let path = self.0.join(name);
+            fs::write(&path, contents).unwrap();
+            path
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+    fn header(creds: Option<StorytellerCredentialSet>) -> String {
+        creds.unwrap().maybe_as_cookie_header().unwrap()
+    }
+
+    #[test]
+    fn environment_session_does_not_require_home_or_mix_accounts() {
+        let f = Fixture::new();
+        f.write(SESSION_FILE, "file-session");
+        f.write(AVT_FILE, "file-visitor");
+        let value = header(resolve_credentials(Some(" env-session \n".into()), None, Some(f.0.clone()), &[]));
+        assert!(value.contains("session=env-session"));
+        assert!(!value.contains("file-visitor"));
+        assert!(header(resolve_credentials(Some("env".into()), None, None, &[])).contains("session=env"));
+    }
+
+    #[test]
+    fn legacy_files_precede_native_session() {
+        let f = Fixture::new();
+        f.write(SESSION_FILE, " file-session \n");
+        f.write(AVT_FILE, "file-visitor");
+        f.write("native_session.json", r#"{"session":"native-session","visitor":"native-visitor"}"#);
+        let value = header(resolve_credentials(None, None, Some(f.0.clone()), &[]));
+        assert!(value.contains("session=file-session"));
+        assert!(value.contains("visitor=file-visitor"));
+        fs::remove_file(f.0.join(SESSION_FILE)).unwrap();
+        let value = header(resolve_credentials(None, None, Some(f.0.clone()), &[]));
+        assert!(value.contains("session=native-session"));
+        assert!(value.contains("visitor=native-visitor"));
+    }
+
+    #[test]
+    fn cookie_jar_rejects_other_domains_and_expired_cookies() {
+        let f = Fixture::new();
+        let cookies = json!([
+            {"raw_cookie":"session=wrong; Path=/", "domain":{"HostOnly":"other.example"}},
+            {"raw_cookie":"session=expired; Path=/", "domain":{"Suffix":"storyteller.ai"}, "expires":{"AtUtc":"2000-01-01T00:00:00Z"}},
+            {"raw_cookie":"session=valid; Path=/", "domain":{"HostOnly":"api.storyteller.ai"}, "expires":{"AtUtc":"2099-01-01T00:00:00Z"}},
+            {"raw_cookie":"visitor=guest; Path=/", "domain":{"Suffix":"storyteller.ai"}}
+        ]);
+        let path = f.write(".cookies", &cookies.to_string());
+        let value = header(resolve_credentials(None, None, Some(f.0.clone()), &[path]));
+        assert!(value.contains("session=valid"));
+        assert!(value.contains("visitor=guest"));
+        assert!(!value.contains("wrong"));
+        assert!(!value.contains("expired"));
+    }
+
+    #[test]
+    fn corrupt_and_missing_files_do_not_prevent_offline_startup() {
+        let f = Fixture::new();
+        f.write(SESSION_FILE, " \n");
+        f.write("native_session.json", "bad json");
+        let path = f.write(".cookies", "bad json");
+        assert!(resolve_credentials(None, None, Some(f.0.clone()), &[path, f.0.join("missing")]).is_none());
+    }
 }

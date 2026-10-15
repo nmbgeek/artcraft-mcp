@@ -10,24 +10,22 @@ name = "artcraft-mcp"
 path = "src/main.rs"
 
 [dependencies]
-# Workspace hack (faster compile times)
-workspace-build-acceleration.workspace = true
-
-# Internal
-artcraft_api_defs.workspace = true
-artcraft_client.workspace = true
-enums.workspace = true
-errors.workspace = true
-tokens.workspace = true
-uuid_utils.workspace = true
+# Shared ArtCraft API types and client, pinned for reproducible standalone builds.
+artcraft_api_defs = { git = "https://github.com/storytold/artcraft.git", rev = "d4e4ac69bbd93d237eaf5d0260bc6a5ff3a5e373" }
+artcraft_client = { git = "https://github.com/storytold/artcraft.git", rev = "d4e4ac69bbd93d237eaf5d0260bc6a5ff3a5e373" }
+enums = { git = "https://github.com/storytold/artcraft.git", rev = "d4e4ac69bbd93d237eaf5d0260bc6a5ff3a5e373" }
+errors = { git = "https://github.com/storytold/artcraft.git", rev = "d4e4ac69bbd93d237eaf5d0260bc6a5ff3a5e373" }
+tokens = { git = "https://github.com/storytold/artcraft.git", rev = "d4e4ac69bbd93d237eaf5d0260bc6a5ff3a5e373" }
+uuid_utils = { git = "https://github.com/storytold/artcraft.git", rev = "d4e4ac69bbd93d237eaf5d0260bc6a5ff3a5e373" }
 
 # External
-anyhow.workspace = true
-log.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde_derive.workspace = true
-tokio.workspace = true
+anyhow = "1"
+chrono = "0.4"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_derive = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs"] }
 
 # Logging
 env_logger = "0.11"
@@ -36,13 +34,13 @@ env_logger = "0.11"
 dirs = "5.0"
 
 # Token generation
-uuid.workspace = true
+uuid = { version = "1", features = ["v4"] }
 
 # URL encoding for query params
 urlencoding = "2.1"
 
 # HTTP client for raw requests
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # MCP / JSON-RPC
 # Using manual JSON-RPC implementation over stdio for minimal dependencies

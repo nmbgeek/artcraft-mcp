@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ArtCraft MCP CLI Runner
-Utility script to interface directly with artcraft-mcp-server.exe over stdio JSON-RPC.
+Utility script to interface directly with the native ArtCraft MCP server over stdio JSON-RPC.
 Supports image uploads, batch video/image generation, job status polling, and automatic downloading.
 """
 
@@ -13,25 +13,15 @@ import re
 import argparse
 import subprocess
 
+if __package__:
+    from .artcraft_runtime import find_executable, normalize_tool_call
+else:
+    from artcraft_runtime import find_executable, normalize_tool_call
+
+
 def find_mcp_executable():
-    """Dynamically locate artcraft-mcp executable across OS environments."""
-    env_path = os.environ.get("ARTCRAFT_MCP_PATH")
-    if env_path and os.path.exists(env_path):
-        return env_path
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(script_dir, "..", "bin", "artcraft-mcp.exe"),
-        os.path.join(script_dir, "artcraft-mcp.exe"),
-        os.path.join(script_dir, "..", "artcraft-mcp.exe"),
-        os.path.join(script_dir, "..", "bin", "artcraft-mcp"),
-        os.path.join(script_dir, "artcraft-mcp"),
-        os.path.join(script_dir, "..", "artcraft-mcp"),
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return os.path.abspath(c)
-    return "artcraft-mcp.exe"
+    return find_executable()
+
 
 class ArtCraftMCPClient:
     def __init__(self, exe_path=None):
@@ -51,6 +41,8 @@ class ArtCraftMCPClient:
         self._initialize()
 
     def send_request(self, method, params=None):
+        if method == "tools/call" and params is not None:
+            params = normalize_tool_call(params)
         msg = {
             "jsonrpc": "2.0",
             "id": self.req_id,

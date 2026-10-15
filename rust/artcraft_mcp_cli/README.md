@@ -1,3 +1,5 @@
+> This crate now builds standalone on macOS, Linux, and Windows. See [native setup](../../docs/macos.md) for current build commands, authentication, and client setup. Tool discovery from the running server is authoritative; the historical tool summary below is incomplete.
+
 # ArtCraft MCP Server
 
 A Model Context Protocol (MCP) server that exposes ArtCraft AI generation capabilities via JSON-RPC over stdio.

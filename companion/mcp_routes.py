@@ -44,41 +44,37 @@ class McpTokenResponse(BaseModel):
 
 def _find_default_mcp_binary() -> Optional[Path]:
     """Locate the bundled artcraft-mcp binary relative to this file."""
-    # companion/backend/routes/mcp.py -> repo root
-    repo_root = Path(__file__).resolve().parents[3]
     binary_name = "artcraft-mcp.exe" if platform.system() == "Windows" else "artcraft-mcp"
-
-    for profile in ("release", "debug"):
-        candidate = repo_root / "target" / profile / binary_name
-        if candidate.exists():
-            return candidate
-
+    # Support this repository and the original companion/backend/routes layout.
+    roots = [Path(__file__).resolve().parents[1], Path(__file__).resolve().parents[3]]
+    for root in roots:
+        for directory in (root / "bin", root / "target/release", root / "target/debug",
+                          root / "rust/artcraft_mcp_cli/target/release"):
+            candidate = directory / binary_name
+            if candidate.is_file() and (platform.system() == "Windows" or os.access(candidate, os.X_OK)):
+                return candidate
     return None
 
 
 def _resolve_mcp_binary(override: Optional[str] = None) -> str:
-    """Resolve the server binary path from override, env, or default search."""
-    if override:
-        candidate = Path(override).resolve()
-        if not candidate.is_file():
-            raise FileNotFoundError(f"MCP server binary not found: {override}")
-        allowed_names = {"artcraft-mcp-server.exe", "artcraft-mcp-server", "artcraft-mcp.exe", "artcraft-mcp"}
-        if candidate.name.lower() not in allowed_names:
-            raise ValueError(f"Invalid MCP binary name: {candidate.name}. Allowed: {allowed_names}")
+    """Resolve a native server path from override, environment, or this checkout."""
+    explicit = override or os.environ.get("ARTCRAFT_MCP_SERVER_PATH") or os.environ.get("ARTCRAFT_MCP_PATH")
+    if explicit:
+        candidate = Path(explicit).expanduser().resolve()
+        names = {"artcraft-mcp", "artcraft-mcp-server"}
+        if platform.system() == "Windows":
+            names = {name + ".exe" for name in names}
+        if not candidate.is_file() or candidate.name not in names:
+            raise FileNotFoundError(f"Native MCP executable not found: {candidate}")
+        if platform.system() != "Windows" and not os.access(candidate, os.X_OK):
+            raise FileNotFoundError(f"MCP executable lacks execute permission: {candidate}")
         return str(candidate)
-
-    env_path = os.environ.get("ARTCRAFT_MCP_SERVER_PATH")
-    if env_path:
-        if not os.path.isfile(env_path):
-            raise FileNotFoundError(f"MCP server binary not found: {env_path}")
-        return env_path
-
     default = _find_default_mcp_binary()
     if default:
         return str(default)
-
     raise FileNotFoundError(
-        "Could not find artcraft-mcp binary. Set ARTCRAFT_MCP_SERVER_PATH or place artcraft-mcp.exe in bin/."
+        "Could not find the native ArtCraft MCP executable. Build with tools/build_native.py "
+        "or set ARTCRAFT_MCP_SERVER_PATH."
     )
 
 
