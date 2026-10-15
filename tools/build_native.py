@@ -2,10 +2,24 @@
 """Build and install the server for the current machine without a desktop build."""
 
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
+
+
+def install_binary(source, destination):
+    """Replace the inode so macOS does not reuse a cached executable signature."""
+    fd, temporary = tempfile.mkstemp(prefix=".artcraft-mcp-", dir=destination.parent)
+    os.close(fd)
+    try:
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def main():
@@ -31,7 +45,7 @@ def main():
     built = target / host / "release" / name
     if not built.is_file():
         raise SystemExit("Expected host binary missing. Unset Cargo build.target for a native build.")
-    shutil.copy2(built, destination)
+    install_binary(built, destination)
     print(f"Installed native server: {destination}")
 
 
